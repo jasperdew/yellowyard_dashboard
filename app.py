@@ -6,6 +6,8 @@ from plotly.subplots import make_subplots
 import numpy as np
 from datetime import datetime, timedelta, date
 import io
+import html
+import re
 
 # Configuratie van de pagina
 st.set_page_config(
@@ -43,7 +45,86 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-def load_and_process_data(uploaded_file):
+def clean_html_entities(text):
+    """Converteert HTML entities naar normale tekst"""
+    if pd.isna(text) or not isinstance(text, str):
+        return text
+    
+    # HTML entities decoderen
+    text = html.unescape(text)
+    
+    # Extra cleanup voor veelvoorkomende encoding issues
+    replacements = {
+        '&ouml;': 'ö',
+        '&euml;': 'ë', 
+        '&uuml;': 'ü',
+        '&auml;': 'ä',
+        '&iuml;': 'ï',
+        '&eacute;': 'é',
+        '&egrave;': 'è',
+        '&aacute;': 'á',
+        '&agrave;': 'à',
+        '&uacute;': 'ú',
+        '&ugrave;': 'ù',
+        '&oacute;': 'ó',
+        '&ograve;': 'ò',
+        '&iacute;': 'í',
+        '&igrave;': 'ì',
+        '&ccedil;': 'ç',
+        '&ntilde;': 'ñ',
+        '&amp;': '&',
+        '&quot;': '"',
+        '&lt;': '<',
+        '&gt;': '>',
+        '&nbsp;': ' '
+    }
+    
+    for entity, char in replacements.items():
+        text = text.replace(entity, char)
+    
+    # Remove HTML tags
+    text = re.sub(r'<[^>]+>', '', text)
+    
+    return text
+
+def get_predefined_periods():
+    """Definieert standaard periode opties"""
+    today = date.today()
+    
+    periods = {
+        "Laatste 7 dagen": (today - timedelta(days=7), today),
+        "Laatste 14 dagen": (today - timedelta(days=14), today),
+        "Laatste 30 dagen": (today - timedelta(days=30), today),
+        "Laatste 90 dagen": (today - timedelta(days=90), today),
+        "Huidige maand": (today.replace(day=1), today),
+        "Vorige maand": get_previous_month_range(today),
+        "Huidige kwartaal": get_current_quarter_range(today),
+        "Huidige kalenderjaar": (date(today.year, 1, 1), today),
+        "Laatste jaar": (today - timedelta(days=365), today),
+        "Aangepast": None  # Voor custom date selection
+    }
+    
+    return periods
+
+def get_previous_month_range(current_date):
+    """Berekent vorige maand periode"""
+    if current_date.month == 1:
+        start = date(current_date.year - 1, 12, 1)
+        end = date(current_date.year, 1, 1) - timedelta(days=1)
+    else:
+        start = date(current_date.year, current_date.month - 1, 1)
+        if current_date.month == 2:
+            end = date(current_date.year, 2, 1) - timedelta(days=1)
+        else:
+            end = date(current_date.year, current_date.month, 1) - timedelta(days=1)
+    return start, end
+
+def get_current_quarter_range(current_date):
+    """Berekent huidige kwartaal periode"""
+    quarter = (current_date.month - 1) // 3 + 1
+    start_month = 3 * (quarter - 1) + 1
+    start = date(current_date.year, start_month, 1)
+    return start, current_date
     """Laadt en verwerkt de ATS CSV data"""
     try:
         # Probeer verschillende encodings
@@ -443,32 +524,64 @@ def main():
                 # Bepaal datum range van data
                 min_date, max_date = get_date_range_from_data(df_full)
                 
-                # Datum selectors
-                start_date = st.date_input(
-                    "Startdatum",
-                    value=min_date,
-                    min_value=min_date,
-                    max_value=max_date
+                # Standaard periode opties
+                periods = get_predefined_periods()
+                
+                # Filter periods die binnen data range vallen
+                available_periods = {}
+                for name, period_range in periods.items():
+                    if period_range is None:  # "Aangepast" optie
+                        available_periods[name] = None
+                    else:
+                        period_start, period_end = period_range
+                        # Check of periode overlapt met beschikbare data
+                        if period_end >= min_date and period_start <= max_date:
+                            # Adjust to data boundaries
+                            adjusted_start = max(period_start, min_date)
+                            adjusted_end = min(period_end, max_date)
+                            available_periods[name] = (adjusted_start, adjusted_end)
+                
+                period_choice = st.selectbox(
+                    "Kies periode",
+                    options=list(available_periods.keys()),
+                    index=0
                 )
                 
-                end_date = st.date_input(
-                    "Einddatum", 
-                    value=max_date,
-                    min_value=min_date,
-                    max_value=max_date
-                )
+                # Datum selectors (alleen tonen als "Aangepast" gekozen)
+                if period_choice == "Aangepast":
+                    start_date = st.date_input(
+                        "Startdatum",
+                        value=min_date,
+                        min_value=min_date,
+                        max_value=max_date
+                    )
+                    
+                    end_date = st.date_input(
+                        "Einddatum", 
+                        value=max_date,
+                        min_value=min_date,
+                        max_value=max_date
+                    )
+                    
+                    if start_date > end_date:
+                        st.error("Startdatum moet voor einddatum liggen!")
+                        return
+                else:
+                    # Gebruik voorgedefinieerde periode
+                    if available_periods[period_choice]:
+                        start_date, end_date = available_periods[period_choice]
+                    else:
+                        start_date, end_date = min_date, max_date
                 
-                if start_date > end_date:
-                    st.error("Startdatum moet voor einddatum liggen!")
-                    return
-                
-                st.info(f"Geselecteerde periode: **{(end_date - start_date).days + 1} dagen**")
+                st.info(f"**Geselecteerde periode:** {(end_date - start_date).days + 1} dagen")
+                st.caption(f"{start_date.strftime('%d-%m-%Y')} tot {end_date.strftime('%d-%m-%Y')}")
             
             # Filter data op geselecteerde periode
             df = filter_data_by_date_range(df_full, start_date, end_date)
             
             if len(df) == 0:
                 st.warning("Geen data beschikbaar voor de geselecteerde periode.")
+                st.info("Probeer een andere periode of controleer je data.")
                 return
             
             # Key Metrics
@@ -520,12 +633,11 @@ def main():
             st.plotly_chart(daily_chart, use_container_width=True)
             
             # Charts in tabs
-            tab1, tab2, tab3, tab4, tab5 = st.tabs([
+            tab1, tab2, tab3, tab4 = st.tabs([
                 "📊 Status Overzicht", 
                 "👥 Recruiter Performance", 
                 "🌐 Kanaal Analyse", 
-                "📋 Vacature Details",
-                "🔍 Data Explorer"
+                "📋 Vacature Details"
             ])
             
             with tab1:
@@ -678,116 +790,258 @@ def main():
                             snelste = vervulde_met_tijd.loc[vervulde_met_tijd['Doorlooptijd_Dagen'].idxmin()]
                             st.success(f"**Snelste Vervulling:** {snelste['Vacature'][:30]}... ({snelste['Doorlooptijd']})")
             
-            with tab5:
-                st.header("🔍 Data Explorer")
+            # Uitgebreide Analytics Sectie
+            st.header("📊 Uitgebreide Analytics")
+            
+            # Controleer welke inzichten we kunnen tonen
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.subheader("📈 Beschikbare Analyses")
                 
-                # Dataset overzicht
+                # Vacaturestatistieken
+                st.write("✅ **Vacaturestatistieken**")
+                st.write(f"• Openstaande rollen: {metrics['openstaande_vacatures']}")
+                st.write(f"• Gesloten rollen: {metrics['vervulde_vacatures'] + metrics['niet_vervulde_vacatures']}")
+                st.write(f"• Fill rate: {metrics['fill_rate']:.1f}%")
+                st.write(f"• Actieve vacatures per recruiter: ✅ (zie Recruiter tab)")
+                
+                # Kanaalanalyse 
+                channel_df = create_channel_analysis(df)[2]
+                st.write("✅ **Kanaalanalyse**")
+                if len(channel_df) > 0:
+                    st.write(f"• Aantal actieve kanalen: {len(channel_df)}")
+                    best_channel = channel_df.loc[channel_df['Conversie_Rate'].idxmax()]
+                    st.write(f"• Beste kanaal: {best_channel['Kanaal']} ({best_channel['Conversie_Rate']:.1f}%)")
+                    st.write(f"• Totaal sollicitanten: {channel_df['Totaal_Sollicitanten'].sum():,}")
+                else:
+                    st.write("• Geen kanaaldata beschikbaar")
+                
+                # Recruiter Performance
+                st.write("✅ **Recruiter Performance**")
+                recruiter_stats = create_recruiter_performance_chart(df)[1]
+                if len(recruiter_stats) > 0:
+                    top_recruiter = recruiter_stats.sort_values('Fill_Rate', ascending=False).iloc[0]
+                    st.write(f"• Actieve recruiters: {len(recruiter_stats)}")
+                    st.write(f"• Beste fill rate: {top_recruiter.name} ({top_recruiter['Fill_Rate']:.1f}%)")
+                    st.write(f"• Totaal reacties: {recruiter_stats['Aantal reacties'].sum():,}")
+            
+            with col2:
+                st.subheader("⚠️ Beperkte Analyses")
+                
+                # Tijdlijn analyses
+                st.write("⚠️ **Tijdlijn Analyses**")
+                period_days = (end_date - start_date).days
+                if period_days < 30:
+                    st.write("• Beperkte periode voor trends")
+                elif period_days < 90:
+                    st.write("• Korte periode - trends zichtbaar")
+                else:
+                    st.write("• Voldoende periode voor trend analyse")
+                
+                # Doorlooptijd analyses
+                st.write("⚠️ **Doorlooptijd Analyses**")
+                performance_table = create_vacature_performance_table(df)
+                doorlooptijden = performance_table[performance_table['Doorlooptijd'] != '-']
+                if len(doorlooptijden) > 0:
+                    st.write(f"• Vacatures met doorlooptijd: {len(doorlooptijden)}")
+                    st.write("• Gemiddelde doorlooptijd berekening mogelijk")
+                else:
+                    st.write("• Onvoldoende sluitdatums voor doorlooptijd")
+                
+                st.write("❌ **Niet Beschikbaar**")
+                st.write("• Candidate journey tracking")
+                st.write("• Funnel analyses (bezoekers → sollicitaties)")
+                st.write("• Kosten per kanaal")
+                st.write("• Time-to-reject specifiek")
+                st.write("• Procesfase tijdsduur")
+            
+            # Summary van data completeness
+            st.subheader("📋 Data Completeness Rapport")
+            
+            # Bereken data completeness scores
+            completeness_scores = {}
+            
+            # Basis data
+            completeness_scores['Basis Vacature Info'] = 100  # Altijd beschikbaar
+            
+            # Status data
+            status_complete = (df['Status vacature'].notna().sum() / len(df)) * 100
+            completeness_scores['Status Informatie'] = status_complete
+            
+            # Datum data  
+            date_complete = (df['Datum aanmaak'].notna().sum() / len(df)) * 100
+            completeness_scores['Datum Informatie'] = date_complete
+            
+            # Recruiter data
+            recruiter_complete = (df['Eigenaar'].notna().sum() / len(df)) * 100
+            completeness_scores['Recruiter Informatie'] = recruiter_complete
+            
+            # Reactie data
+            reactie_complete = ((df['Aantal reacties'] > 0).sum() / len(df)) * 100
+            completeness_scores['Sollicitatie Data'] = reactie_complete
+            
+            # Kanaal data
+            kanaal_cols = [col for col in df.columns if 'wervingskanaal' in col and not col.endswith(('aangenomen)', 'afgewezen)'))]
+            if kanaal_cols:
+                kanaal_data = df[kanaal_cols].sum(axis=1) > 0
+                kanaal_complete = (kanaal_data.sum() / len(df)) * 100
+                completeness_scores['Kanaal Data'] = kanaal_complete
+            else:
+                completeness_scores['Kanaal Data'] = 0
+            
+            # Toon completeness scores
+            completeness_df = pd.DataFrame(list(completeness_scores.items()), 
+                                         columns=['Data Categorie', 'Completeness %'])
+            completeness_df['Completeness %'] = completeness_df['Completeness %'].round(1)
+            completeness_df['Status'] = completeness_df['Completeness %'].apply(
+                lambda x: '🟢 Excellent' if x >= 90 else '🟡 Good' if x >= 70 else '🔴 Limited'
+            )
+            
+            st.dataframe(completeness_df, use_container_width=True)
+            
+            # Gemiddelde completeness
+            avg_completeness = completeness_df['Completeness %'].mean()
+            
+            if avg_completeness >= 85:
+                st.success(f"🎉 **Uitstekende data kwaliteit!** Gemiddelde completeness: {avg_completeness:.1f}%")
+                st.info("Je kunt alle beschikbare analyses gebruiken voor betrouwbare inzichten.")
+            elif avg_completeness >= 70:
+                st.warning(f"⚠️ **Goede data kwaliteit.** Gemiddelde completeness: {avg_completeness:.1f}%")
+                st.info("De meeste analyses zijn betrouwbaar, maar sommige kunnen beperkt zijn.")
+            else:
+                st.error(f"🔴 **Beperkte data kwaliteit.** Gemiddelde completeness: {avg_completeness:.1f}%")
+                st.info("Overweeg een meer complete data export voor betere inzichten.")
+            
+            # Download opties
+            with st.expander("📥 Export Opties"):
                 col1, col2 = st.columns(2)
                 
                 with col1:
-                    st.subheader("Dataset Informatie")
-                    st.write(f"**Totaal records:** {len(df):,}")
-                    st.write(f"**Periode:** {start_date} tot {end_date}")
-                    st.write(f"**Unieke recruiters:** {df['Eigenaar'].nunique()}")
-                    st.write(f"**Unieke locaties:** {df['Locatie'].nunique() if 'Locatie' in df.columns else 'N/A'}")
-                    
-                    total_applicants = df['Aantal reacties'].sum()
-                    st.write(f"**Totaal reacties:** {total_applicants:,}")
-                
-                with col2:
-                    st.subheader("Data Kwaliteit")
-                    missing_data = df.isnull().sum()
-                    missing_pct = (missing_data / len(df) * 100).round(1)
-                    
-                    quality_df = pd.DataFrame({
-                        'Kolom': missing_data.index[:10],  # Top 10 kolommen
-                        'Ontbrekend': missing_data.values[:10],
-                        'Percentage': missing_pct.values[:10]
-                    })
-                    quality_df = quality_df[quality_df['Ontbrekend'] > 0]
-                    
-                    if len(quality_df) > 0:
-                        st.dataframe(quality_df, use_container_width=True)
-                    else:
-                        st.success("Geen ontbrekende data gedetecteerd!")
-                
-                # Ruwe data viewer
-                st.subheader("📋 Ruwe Data")
-                
-                # Kolom selector
-                available_columns = df.columns.tolist()
-                selected_columns = st.multiselect(
-                    "Selecteer kolommen om te tonen",
-                    options=available_columns,
-                    default=['Functie', 'Status vacature', 'Eigenaar', 'Datum aanmaak', 'Aantal reacties'][:5]
-                )
-                
-                if selected_columns:
-                    display_df = df[selected_columns].copy()
-                    
-                    # Format datums voor display
-                    for col in selected_columns:
-                        if df[col].dtype == 'datetime64[ns]':
-                            display_df[col] = display_df[col].dt.strftime('%d-%m-%Y')
-                    
-                    st.dataframe(display_df, use_container_width=True, height=400)
-                
-                # Download opties
-                st.subheader("📥 Data Export")
-                
-                col1, col2 = st.columns(2)
-                
-                with col1:
-                    # Download gefilterde data
-                    if st.button("📊 Download Gefilterde Data"):
-                        csv_buffer = io.StringIO()
-                        df.to_csv(csv_buffer, index=False, sep=';')
-                        csv_data = csv_buffer.getvalue()
-                        
-                        st.download_button(
-                            label="💾 Download CSV",
-                            data=csv_data,
-                            file_name=f"ats_data_filtered_{start_date}_{end_date}.csv",
-                            mime="text/csv"
-                        )
-                
-                with col2:
-                    # Download performance rapport
-                    if st.button("📈 Download Performance Rapport"):
+                    if st.button("📊 Download Performance Rapport"):
                         performance_table = create_vacature_performance_table(df)
                         csv_buffer = io.StringIO()
                         performance_table.to_csv(csv_buffer, index=False, sep=';')
                         csv_data = csv_buffer.getvalue()
                         
                         st.download_button(
-                            label="💾 Download Rapport",
+                            label="💾 Download Performance CSV",
                             data=csv_data,
                             file_name=f"vacature_performance_{start_date}_{end_date}.csv",
                             mime="text/csv"
                         )
                 
-                # Advanced filters
-                with st.expander("🔧 Geavanceerde Filters"):
-                    st.write("**Filter op Status Tijdlijn:**")
-                    
-                    col1, col2 = st.columns(2)
-                    
-                    with col1:
-                        # Vacatures gestart in periode
-                        started_in_period = df[
-                            (df['Datum aanmaak'] >= pd.Timestamp(start_date)) & 
-                            (df['Datum aanmaak'] <= pd.Timestamp(end_date))
-                        ]
-                        st.metric("Gestart in Periode", len(started_in_period))
-                    
-                    with col2:
-                        # Vacatures gesloten in periode
-                        closed_in_period = df[
-                            ((df['Vervuldatum'] >= pd.Timestamp(start_date)) & (df['Vervuldatum'] <= pd.Timestamp(end_date))) |
-                            ((df['Niet vervuld'] >= pd.Timestamp(start_date)) & (df['Niet vervuld'] <= pd.Timestamp(end_date))) |
-                            ((df['Ingetrokken'] >= pd.Timestamp(start_date)) & (df['Ingetrokken'] <= pd.Timestamp(end_date)))
-                        ]
+                with col2:
+                    if st.button("📈 Download Gefilterde Data"):
+                        csv_buffer = io.StringIO()
+                        df.to_csv(csv_buffer, index=False, sep=';')
+                        csv_data = csv_buffer.getvalue()
+                        
+                        st.download_button(
+                            label="💾 Download Gefilterde CSV",
+                            data=csv_data,
+                            file_name=f"ats_data_filtered_{start_date}_{end_date}.csv",
+                            mime="text/csv"
+                        )
                         st.metric("Gesloten in Periode", len(closed_in_period))
+    
+    else:
+        # Landing page
+        st.markdown("""
+        ## 🚀 Welkom bij het ATS Recruitment Dashboard
+        
+        Deze applicatie helpt je om waardevolle inzichten te krijgen uit je ATS (Applicant Tracking System) export data.
+        
+        ### 📋 Nieuwe Features:
+        
+        🗓️ **Slimme Periode Selectie** - Kies uit standaard periodes of maak aangepaste selecties  
+        📈 **Dagelijkse Activiteit** - Zie nieuwe en gesloten vacatures per dag  
+        📋 **Vacature Details** - Gedetailleerde performance per individuele vacature  
+        📊 **Uitgebreide Analytics** - Volledig overzicht van beschikbare inzichten  
+        🧹 **Automatische Data Cleaning** - HTML entities worden automatisch geconverteerd  
+        
+        ### 📊 Dashboard Functionaliteiten:
+        
+        ✅ **Status Overzicht** - Pie charts en KPIs voor vacaturestatus  
+        ✅ **Recruiter Performance** - Vergelijk prestaties tussen recruiters  
+        ✅ **Kanaal Analyse** - Ontdek welke wervingskanalen het beste werken  
+        ✅ **Vacature Breakdown** - Performance metrics per individuele vacature  
+        ✅ **Data Completeness Rapport** - Zie de kwaliteit van je data  
+        
+        ### 🗓️ Periode Opties:
+        - **Laatste 7, 14, 30, 90 dagen** - Recente activiteit
+        - **Huidige/vorige maand** - Maandelijkse analyses  
+        - **Huidige kwartaal** - Kwartaal rapportage
+        - **Kalenderjaar** - Jaarlijkse trends
+        - **Aangepast** - Kies je eigen periode
+        
+        ### 📁 Hoe te gebruiken:
+        1. **Upload** je CSV export vanuit je ATS systeem via de sidebar
+        2. **Selecteer** een standaard periode of kies "Aangepast" voor specifieke datums
+        3. **Navigeer** door de verschillende tabs voor verschillende analyses
+        4. **Bekijk** de Uitgebreide Analytics voor een volledig overzicht
+        5. **Export** rapporten voor verdere analyse
+        
+        ### 🔧 Ondersteunde formaten:
+        - CSV bestanden met puntkomma (;) als delimiter
+        - Multiple encodings (UTF-8, CP1252, etc.)
+        - Datum formaten: DD-MM-YYYY
+        - **Automatische HTML entity cleaning** (bijv. Co&ouml;rdinator → Coördinator)
+        
+        ### 💡 Pro Tips:
+        - Begin met **"Laatste 30 dagen"** voor een snel overzicht
+        - Gebruik **"Huidige kwartaal"** voor management rapportage
+        - Check de **Uitgebreide Analytics** voor data completeness
+        - **Export** performance rapporten voor presentaties
+        - Vergelijk verschillende periodes voor trend analyse
+        
+        ### 📊 Beschikbare Inzichten:
+        
+        **✅ Volledig Ondersteund:**
+        - Vacaturestatus verdelingen en trends
+        - Fill rates per recruiter en overall  
+        - Kanaal performance en conversie ratio's
+        - Dagelijkse activiteit tracking
+        - Individuele vacature performance
+        - Doorlooptijd analyses (waar data beschikbaar)
+        
+        **⚠️ Beperkt Ondersteund:**
+        - Tijdlijn trends (afhankelijk van periode lengte)
+        - Procesfase analyses (afhankelijk van status data)
+        
+        **❌ Niet Ondersteund:**
+        - Kandidaat journey tracking (vereist kandidaat-level data)
+        - Funnel analyses (vereist web analytics)
+        - Kosten analyses (niet in standaard export)
+        
+        **Upload je bestand om te beginnen! →**
+        """)
+        
+        # Voorbeeld data structure
+        with st.expander("📋 Verwachte Data Structuur"):
+            st.markdown("""
+            **Verplichte kolommen:**
+            - `Functie` - Vacaturetitel
+            - `Status vacature` - Huidige status
+            - `Eigenaar` - Recruiter
+            - `Datum aanmaak` - Aanmaakdatum vacature
+            - `Aantal reacties` - Aantal sollicitaties
+            
+            **Optionele kolommen voor uitgebreide analyse:**
+            - `Extern vervuld`, `Intern vervuld` - Vervuldatums voor doorlooptijd
+            - `Niet vervuld`, `Ingetrokken` - Sluitdatums voor completeness
+            - `Totaal per wervingskanaal: [KANAAL]` - Voor kanaal effectiviteit
+            - `Totaal per wervingskanaal (aangenomen): [KANAAL]` - Voor conversie rates
+            - `Locatie` - Voor geografische analyses
+            
+            **Automatische Cleaning:**
+            - HTML entities worden automatisch geconverteerd
+            - Datums in DD-MM-YYYY formaat worden herkend
+            - Lege waarden en 0000-00-00 datums worden gefilterd
+            """)
+
+if __name__ == "__main__":
+    main()
     
     else:
         # Landing page
