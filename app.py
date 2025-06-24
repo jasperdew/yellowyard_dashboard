@@ -4,7 +4,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import numpy as np
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 import io
 
 # Configuratie van de pagina
@@ -123,7 +123,6 @@ def create_status_chart(df):
 
 def create_recruiter_performance_chart(df):
     """Maakt recruiter performance chart"""
-    # Filter alleen actieve recruiters
     df_clean = df[df['Eigenaar'].notna() & (df['Eigenaar'] != ' ') & (df['Eigenaar'] != '')]
     
     recruiter_stats = df_clean.groupby('Eigenaar').agg({
@@ -131,13 +130,11 @@ def create_recruiter_performance_chart(df):
         'Aantal reacties': 'sum'
     }).rename(columns={'Functie': 'Totaal_Vacatures'})
     
-    # Bereken vervulde vacatures
     vervulde_per_recruiter = df_clean[df_clean['Status vacature'].isin(['Extern vervuld', 'Intern vervuld'])].groupby('Eigenaar').size()
     recruiter_stats['Vervulde_Vacatures'] = vervulde_per_recruiter.fillna(0)
     recruiter_stats['Fill_Rate'] = (recruiter_stats['Vervulde_Vacatures'] / recruiter_stats['Totaal_Vacatures'] * 100).round(1)
     recruiter_stats['Gem_Reacties'] = (recruiter_stats['Aantal reacties'] / recruiter_stats['Totaal_Vacatures']).round(1)
     
-    # Filter recruiters met minimaal 5 vacatures
     recruiter_stats = recruiter_stats[recruiter_stats['Totaal_Vacatures'] >= 5].sort_values('Totaal_Vacatures', ascending=True)
     
     fig = make_subplots(
@@ -146,7 +143,6 @@ def create_recruiter_performance_chart(df):
         specs=[[{"secondary_y": False}, {"secondary_y": False}]]
     )
     
-    # Aantal vacatures
     fig.add_trace(
         go.Bar(
             y=recruiter_stats.index,
@@ -158,7 +154,6 @@ def create_recruiter_performance_chart(df):
         row=1, col=1
     )
     
-    # Fill rate
     fig.add_trace(
         go.Bar(
             y=recruiter_stats.index,
@@ -207,7 +202,6 @@ def create_channel_analysis(df):
     channel_df = channel_df[channel_df['Totaal_Sollicitanten'] > 0].sort_values('Totaal_Sollicitanten', ascending=False)
     
     if len(channel_df) > 0:
-        # Chart voor totaal sollicitanten
         fig1 = px.bar(
             channel_df,
             x='Kanaal',
@@ -218,7 +212,6 @@ def create_channel_analysis(df):
         )
         fig1.update_xaxes(tickangle=45)
         
-        # Chart voor conversie rates
         fig2 = px.bar(
             channel_df,
             x='Kanaal',
@@ -246,7 +239,6 @@ def create_timeline_analysis(df):
         'Aantal reacties': 'sum'
     }).rename(columns={'Functie': 'Vacatures_Aangemaakt'})
     
-    # Vervulde vacatures per maand
     vervulde_timeline = df_timeline[df_timeline['Status vacature'].isin(['Extern vervuld', 'Intern vervuld'])].groupby('Maand').size()
     timeline_data['Vervulde_Vacatures'] = vervulde_timeline.fillna(0)
     
@@ -284,7 +276,7 @@ def main():
     st.title("📊 ATS Recruitment Dashboard")
     st.markdown("Upload je ATS export CSV om uitgebreide recruitment analytics te bekijken")
     
-    # Sidebar voor file upload
+    # Sidebar voor file upload + datumselectie
     with st.sidebar:
         st.header("📁 Data Upload")
         uploaded_file = st.file_uploader(
@@ -292,16 +284,40 @@ def main():
             type=['csv'],
             help="Upload het CSV bestand geëxporteerd uit je ATS systeem"
         )
+        st.success("✅ Bestand succesvol geladen!") if uploaded_file else None
         
-        if uploaded_file:
-            st.success("✅ Bestand succesvol geladen!")
-            
-            # Data info
-            file_details = {
-                "Bestandsnaam": uploaded_file.name,
-                "Bestandsgrootte": f"{uploaded_file.size / 1024:.1f} KB"
-            }
-            st.json(file_details)
+        st.markdown("---")
+        st.header("📆 Datum selectie")
+        today = date.today()
+        opties = [
+            "Laatste 7 dagen",
+            "Laatste 14 dagen",
+            "Laatste 30 dagen",
+            "Deze maand",
+            "Aangepaste periode"
+        ]
+        keuze = st.selectbox("Selecteer periode", opties)
+        
+        if keuze == "Laatste 7 dagen":
+            start_date = today - timedelta(days=7)
+            end_date = today
+        elif keuze == "Laatste 14 dagen":
+            start_date = today - timedelta(days=14)
+            end_date = today
+        elif keuze == "Laatste 30 dagen":
+            start_date = today - timedelta(days=30)
+            end_date = today
+        elif keuze == "Deze maand":
+            start_date = today.replace(day=1)
+            end_date = today
+        else:  # Aangepaste periode
+            start_date, end_date = st.date_input(
+                "Kies datumbereik",
+                value=[today - timedelta(days=7), today],
+                help="Selecteer begin- en einddatum"
+            )
+        
+        st.markdown(f"**Getoond:** {start_date.strftime('%d-%m-%Y')} tot {end_date.strftime('%d-%m-%Y')}")
     
     if uploaded_file is not None:
         # Laad data
@@ -309,11 +325,16 @@ def main():
             df = load_and_process_data(uploaded_file)
         
         if df is not None:
+            # **Hier de filtering toepassen**
+            df = df.loc[
+                (df['Datum aanmaak'] >= pd.to_datetime(start_date)) &
+                (df['Datum aanmaak'] <= pd.to_datetime(end_date))
+            ]
+            
             # Key Metrics
             metrics = calculate_metrics(df)
             
             st.header("🎯 Key Performance Indicators")
-            
             col1, col2, col3, col4 = st.columns(4)
             
             with col1:
@@ -348,7 +369,6 @@ def main():
                 status_fig = create_status_chart(df)
                 st.plotly_chart(status_fig, use_container_width=True)
                 
-                # Status tabel
                 st.subheader("Status Details")
                 status_table = df['Status vacature'].value_counts().reset_index()
                 status_table.columns = ['Status', 'Aantal']
@@ -393,7 +413,6 @@ def main():
                 else:
                     st.info("Onvoldoende tijdsdata voor tijdlijn analyse (dataset lijkt recent te zijn).")
                 
-                # Aanvullende statistieken
                 st.subheader("Dataset Informatie")
                 col1, col2 = st.columns(2)
                 
@@ -407,11 +426,9 @@ def main():
                     total_applicants = df['Aantal reacties'].sum()
                     st.write(f"**Totaal aantal reacties:** {total_applicants:,}")
             
-            # Raw data viewer
             with st.expander("🔍 Bekijk ruwe data"):
                 st.dataframe(df, use_container_width=True)
                 
-                # Download processed data
                 csv_buffer = io.StringIO()
                 df.to_csv(csv_buffer, index=False)
                 csv_data = csv_buffer.getvalue()
@@ -422,7 +439,6 @@ def main():
                     file_name="processed_ats_data.csv",
                     mime="text/csv"
                 )
-    
     else:
         # Landing page
         st.markdown("""
@@ -439,8 +455,8 @@ def main():
         
         ### 📁 Hoe te gebruiken:
         1. Upload je CSV export vanuit je ATS systeem via de sidebar
-        2. Het dashboard wordt automatisch gegenereerd
-        3. Navigeer door de verschillende tabs voor verschillende analyses
+        2. Selecteer een datumbereik
+        3. Het dashboard wordt automatisch gegenereerd
         
         ### 🔧 Ondersteunde formaten:
         - CSV bestanden met puntkomma (;) als delimiter
