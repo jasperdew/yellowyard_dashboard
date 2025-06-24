@@ -3,423 +3,239 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
-import numpy as np
 from datetime import datetime, timedelta, date
 import io
 
-# Configuratie van de pagina
-st.set_page_config(
-    page_title="ATS Recruitment Dashboard",
-    page_icon="📊",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
-
-# Custom CSS voor betere styling
-st.markdown("""
-<style>
-    .metric-card {
-        background-color: #f0f2f6;
-        padding: 1rem;
-        border-radius: 0.5rem;
-        border-left: 4px solid #1f77b4;
-    }
-    .success-metric {
-        border-left-color: #2ca02c;
-    }
-    .warning-metric {
-        border-left-color: #ff7f0e;
-    }
-    .danger-metric {
-        border-left-color: #d62728;
-    }
-</style>
-""", unsafe_allow_html=True)
+# Universele lijsten
+FILLED_STATUSES = ['Extern vervuld', 'Intern vervuld']
+CHANNELS = [
+    'V&VN', 'Indeed', 'Infopuntzorg', 'Zorgselect', 'Facebook',
+    'Linkedin', 'Twitter', 'Instagram', 'Via medewerker van SEIN', 'Anders'
+]
 
 def load_and_process_data(uploaded_file):
-    """Laadt en verwerkt de ATS CSV data"""
     try:
-        # Probeer verschillende encodings
-        encodings = ['utf-8', 'cp1252', 'iso-8859-1', 'latin-1']
+        encodings = ['utf-8','cp1252','iso-8859-1','latin-1']
         df = None
-        
-        for encoding in encodings:
+        for enc in encodings:
             try:
                 uploaded_file.seek(0)
-                df = pd.read_csv(uploaded_file, encoding=encoding, delimiter=';')
+                df = pd.read_csv(uploaded_file, encoding=enc, delimiter=';')
                 break
             except UnicodeDecodeError:
                 continue
-        
         if df is None:
             st.error("Kon bestand niet inlezen. Controleer de encoding.")
             return None
-        
-        # Data cleaning
+
         df.columns = df.columns.str.strip()
-        
-        # Converteer datums
-        date_columns = ['Datum aanmaak', 'Startdatum intern', 'Einddatum intern', 
-                       'Startdatum extern', 'Einddatum extern']
-        
-        for col in date_columns:
-            if col in df.columns:
-                df[col] = pd.to_datetime(df[col], format='%d-%m-%Y', errors='coerce')
-                df[col] = df[col].replace('0000-00-00', pd.NaT)
-        
+        date_cols = ['Datum aanmaak','Startdatum intern','Einddatum intern',
+                     'Startdatum extern','Einddatum extern']
+        for c in date_cols:
+            if c in df.columns:
+                df[c] = pd.to_datetime(df[c], format='%d-%m-%Y', errors='coerce')
+                df[c] = df[c].replace('0000-00-00', pd.NaT)
         return df
-    
     except Exception as e:
-        st.error(f"Fout bij het laden van data: {str(e)}")
+        st.error(f"Fout bij laden data: {e}")
         return None
 
 def calculate_metrics(df):
-    """Berekent key metrics"""
-    total_vacatures = len(df)
-    vervulde_vacatures = len(df[df['Status vacature'].isin(['Extern vervuld', 'Intern vervuld'])])
-    openstaande_vacatures = len(df[df['Status vacature'].isin(['Publicatie in- en extern', 'In procedure', 'Publicatie intern'])])
-    niet_vervulde_vacatures = len(df[df['Status vacature'] == 'Niet vervuld'])
-    
-    fill_rate = (vervulde_vacatures / total_vacatures * 100) if total_vacatures > 0 else 0
-    
+    total = len(df)
+    vervuld = df['Status vacature'].isin(FILLED_STATUSES).sum()
+    openst = total - vervuld
+    niet = (df['Status vacature']=='Niet vervuld').sum()
+    fill = (vervuld/total*100) if total>0 else 0
     return {
-        'total_vacatures': total_vacatures,
-        'vervulde_vacatures': vervulde_vacatures,
-        'openstaande_vacatures': openstaande_vacatures,
-        'niet_vervulde_vacatures': niet_vervulde_vacatures,
-        'fill_rate': fill_rate
+        'total_vacatures': total,
+        'vervulde_vacatures': vervuld,
+        'openstaande_vacatures': openst,
+        'niet_vervulde_vacatures': niet,
+        'fill_rate': fill
     }
 
 def create_status_chart(df):
-    """Maakt status verdeling chart met contrastrijke kleuren"""
-    status_counts = df['Status vacature'].value_counts()
-    
-    # Aangepast kleurenschema voor meer contrast
+    counts = df['Status vacature'].value_counts()
     colors = {
-        'Extern vervuld': '#1f77b4',               # blauw
-        'Intern vervuld': '#2ca02c',               # groen
-        'Niet vervuld': '#d62728',                 # rood
-        'Publicatie in- en extern': '#ff7f0e',      # oranje
-        'In procedure': '#9467bd',                 # paars
-        'Ingetrokken': '#8c564b'                   # bruin
+        'Extern vervuld':'#1f77b4','Intern vervuld':'#2ca02c','Niet vervuld':'#d62728',
+        'Publicatie in- en extern':'#ff7f0e','In procedure':'#9467bd','Ingetrokken':'#8c564b'
     }
-    
     fig = px.pie(
-        values=status_counts.values,
-        names=status_counts.index,
-        title="Verdeling Vacaturestatus",
-        color=status_counts.index,
+        values=counts.values, names=counts.index,
+        title="Verdeling Vacaturestatus", color=counts.index,
         color_discrete_map=colors
     )
-    
     fig.update_traces(textposition='inside', textinfo='percent+label')
     fig.update_layout(height=400)
-    
     return fig
 
 def create_recruiter_performance_chart(df):
-    """Maakt recruiter performance chart en toont alle recruiters"""
-    # Filter alleen lege eigenaren eruit
-    df_clean = df[df['Eigenaar'].notna() & (df['Eigenaar'].str.strip() != '')]
-    
-    recruiter_stats = df_clean.groupby('Eigenaar').agg({
-        'Functie': 'count',
-        'Aantal reacties': 'sum'
-    }).rename(columns={'Functie': 'Totaal_Vacatures'})
-    
-    # Bereken vervulde vacatures per recruiter
-    vervulde_per_recruiter = df_clean[df_clean['Status vacature'].isin(['Extern vervuld', 'Intern vervuld'])].groupby('Eigenaar').size()
-    recruiter_stats['Vervulde_Vacatures'] = vervulde_per_recruiter.fillna(0)
-    recruiter_stats['Fill_Rate'] = (recruiter_stats['Vervulde_Vacatures'] / recruiter_stats['Totaal_Vacatures'] * 100).round(1)
-    recruiter_stats['Gem_Reacties'] = (recruiter_stats['Aantal reacties'] / recruiter_stats['Totaal_Vacatures']).round(1)
-    
-    # **Verwijder filter op minimaal aantal vacatures, toon iedereen**
-    recruiter_stats = recruiter_stats.sort_values('Totaal_Vacatures', ascending=True)
+    dfc = df[df['Eigenaar'].notna() & (df['Eigenaar'].str.strip()!='')]
+    stats = dfc.groupby('Eigenaar').agg({
+        'Functie':'count','Aantal reacties':'sum'
+    }).rename(columns={'Functie':'Totaal_Vacatures'})
+    filled = dfc[dfc['Status vacature'].isin(FILLED_STATUSES)].groupby('Eigenaar').size()
+    stats['Vervulde_Vacatures'] = filled.fillna(0)
+    stats['Fill_Rate'] = (stats['Vervulde_Vacatures']/stats['Totaal_Vacatures']*100).round(1)
+    stats['Gem_Reacties'] = (stats['Aantal reacties']/stats['Totaal_Vacatures']).round(1)
+    stats = stats.sort_values('Totaal_Vacatures')
     
     fig = make_subplots(
         rows=1, cols=2,
-        subplot_titles=('Aantal Vacatures per Recruiter', 'Fill Rate per Recruiter'),
-        specs=[[{"secondary_y": False}, {"secondary_y": False}]]
+        subplot_titles=('Aantal Vacatures per Recruiter','Fill Rate per Recruiter'),
+        specs=[[{}, {}]]
     )
-    
-    # Aantal vacatures
     fig.add_trace(
         go.Bar(
-            y=recruiter_stats.index,
-            x=recruiter_stats['Totaal_Vacatures'],
-            name='Totaal Vacatures',
-            orientation='h'
-        ),
-        row=1, col=1
+            y=stats.index, x=stats['Totaal_Vacatures'],
+            orientation='h', name='Vacatures'
+        ), row=1, col=1
     )
-    
-    # Fill rate
     fig.add_trace(
         go.Bar(
-            y=recruiter_stats.index,
-            x=recruiter_stats['Fill_Rate'],
-            name='Fill Rate (%)',
-            orientation='h'
-        ),
-        row=1, col=2
+            y=stats.index, x=stats['Fill_Rate'],
+            orientation='h', name='Fill Rate (%)'
+        ), row=1, col=2
     )
-    
     fig.update_layout(height=600, showlegend=False)
-    fig.update_xaxes(title_text="Aantal Vacatures", row=1, col=1)
-    fig.update_xaxes(title_text="Fill Rate (%)", row=1, col=2)
-    
-    return fig, recruiter_stats
+    fig.update_xaxes(title_text="Aantal Vacatures", row=1,col=1)
+    fig.update_xaxes(title_text="Fill Rate (%)", row=1,col=2)
+    return fig, stats
 
 def create_channel_analysis(df):
-    """Analyseert wervingskanalen"""
-    channels = ['V&VN', 'Indeed', 'Infopuntzorg', 'Zorgselect', 'Facebook', 
-               'Linkedin', 'Twitter', 'Instagram', 'Via medewerker van SEIN', 'Anders']
-    
-    channel_data = []
-    
-    for channel in channels:
-        total_col = f'Totaal per wervingskanaal: {channel}'
-        hired_col = f'Totaal per wervingskanaal (aangenomen): {channel}'
-        rejected_col = f'Totaal per wervingskanaal (afgewezen): {channel}'
-        
-        if total_col in df.columns:
-            total = df[total_col].sum()
-            hired = df[hired_col].sum() if hired_col in df.columns else 0
-            rejected = df[rejected_col].sum() if rejected_col in df.columns else 0
-            
-            if total > 0:
-                conversion_rate = (hired / total * 100)
-                channel_data.append({
-                    'Kanaal': channel,
-                    'Totaal_Sollicitanten': total,
-                    'Aangenomen': hired,
-                    'Afgewezen': rejected,
-                    'Conversie_Rate': conversion_rate
-                })
-    
-    channel_df = pd.DataFrame(channel_data)
-    channel_df = channel_df[channel_df['Totaal_Sollicitanten'] > 0].sort_values('Totaal_Sollicitanten', ascending=False)
-    
-    if len(channel_df) > 0:
-        fig1 = px.bar(
-            channel_df,
-            x='Kanaal',
-            y='Totaal_Sollicitanten',
-            title='Aantal Sollicitanten per Kanaal',
-            color='Totaal_Sollicitanten',
-            color_continuous_scale='Blues'
-        )
-        fig1.update_xaxes(tickangle=45)
-        
-        fig2 = px.bar(
-            channel_df,
-            x='Kanaal',
-            y='Conversie_Rate',
-            title='Conversieratio per Kanaal (%)',
-            color='Conversie_Rate',
-            color_continuous_scale='Greens'
-        )
-        fig2.update_xaxes(tickangle=45)
-        
-        return fig1, fig2, channel_df
-    
-    return None, None, pd.DataFrame()
+    data=[]
+    for ch in CHANNELS:
+        tot = f'Totaal per wervingskanaal: {ch}'
+        hired = f'Totaal per wervingskanaal (aangenomen): {ch}'
+        if tot in df.columns:
+            t=df[tot].sum()
+            h=df[hired].sum() if hired in df.columns else 0
+            if t>0:
+                data.append({'Kanaal':ch,'Totaal_Sollicitanten':t,'Conversie_Rate':h/t*100})
+    cdf=pd.DataFrame(data).sort_values('Totaal_Sollicitanten',ascending=False)
+    if cdf.empty: return None,None,cdf
+    fig1=px.bar(cdf,x='Kanaal',y='Totaal_Sollicitanten',title='Aantal Sollicitanten per Kanaal',color='Totaal_Sollicitanten')
+    fig1.update_xaxes(tickangle=45)
+    fig2=px.bar(cdf,x='Kanaal',y='Conversie_Rate',title='Conversieratio per Kanaal (%)',color='Conversie_Rate')
+    fig2.update_xaxes(tickangle=45)
+    return fig1,fig2,cdf
 
 def create_timeline_analysis(df):
-    """Maakt tijdlijn analyse"""
-    if 'Datum aanmaak' not in df.columns:
-        return None
+    df2 = df.copy()
+    df2['Datum'] = df2['Datum aanmaak'].dt.date
+    grp = df2.groupby('Datum').agg({
+        'Functie':'count','Aantal reacties':'sum'
+    }).rename(columns={'Functie':'Vacatures_Aangemaakt'})
+    filled = df2[df2['Status vacature'].isin(FILLED_STATUSES)].groupby('Datum').size()
+    grp['Vervulde_Vacatures'] = filled.fillna(0)
     
-    df_timeline = df.copy()
-    df_timeline['Maand'] = df_timeline['Datum aanmaak'].dt.to_period('M')
-    
-    timeline_data = df_timeline.groupby('Maand').agg({
-        'Functie': 'count',
-        'Aantal reacties': 'sum'
-    }).rename(columns={'Functie': 'Vacatures_Aangemaakt'})
-    
-    vervulde_timeline = df_timeline[df_timeline['Status vacature'].isin(['Extern vervuld', 'Intern vervuld'])].groupby('Maand').size()
-    timeline_data['Vervulde_Vacatures'] = vervulde_timeline.fillna(0)
-    
-    if len(timeline_data) > 1:
-        fig = go.Figure()
-        fig.add_trace(go.Scatter(
-            x=[str(x) for x in timeline_data.index],
-            y=timeline_data['Vacatures_Aangemaakt'],
-            mode='lines+markers',
-            name='Vacatures Aangemaakt'
-        ))
-        fig.add_trace(go.Scatter(
-            x=[str(x) for x in timeline_data.index],
-            y=timeline_data['Vervulde_Vacatures'],
-            mode='lines+markers',
-            name='Vervulde Vacatures'
-        ))
-        fig.update_layout(
-            title='Vacatures over Tijd',
-            xaxis_title='Maand',
-            yaxis_title='Aantal Vacatures',
-            height=400
-        )
-        return fig
-    return None
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        x=grp.index, y=grp['Vacatures_Aangemaakt'],
+        mode='lines+markers', name='Aangemaakt'
+    ))
+    fig.add_trace(go.Scatter(
+        x=grp.index, y=grp['Vervulde_Vacatures'],
+        mode='lines+markers', name='Vervuld'
+    ))
+    fig.update_layout(
+        title='Vacatures over Tijd (per dag)',
+        xaxis_title='Datum', yaxis_title='Aantal Vacatures',
+        height=400
+    )
+    return fig
 
 def main():
+    st.set_page_config(page_title="ATS Recruitment Dashboard", page_icon="📊", layout="wide")
     st.title("📊 ATS Recruitment Dashboard")
-    st.markdown("Upload je ATS export CSV om uitgebreide recruitment analytics te bekijken")
-    
-    # Sidebar voor file upload + datumselectie
+    st.markdown("Upload je ATS export CSV en selecteer een datumbereik")
+
+    # Sidebar: upload + datumselectie
     with st.sidebar:
         st.header("📁 Data Upload")
-        uploaded_file = st.file_uploader(
-            "Upload je ATS CSV bestand",
-            type=['csv'],
-            help="Upload het CSV bestand geëxporteerd uit je ATS systeem"
-        )
+        uploaded_file = st.file_uploader("Upload je ATS CSV bestand", type=['csv'])
         if uploaded_file:
             st.success("✅ Bestand succesvol geladen!")
-
         st.markdown("---")
         st.header("📆 Datum selectie")
         today = date.today()
-        opties = [
-            "Laatste 7 dagen",
-            "Laatste 14 dagen",
-            "Laatste 30 dagen",
-            "Deze maand",
-            "Aangepaste periode"
-        ]
+        opties = ["Laatste 7 dagen","Laatste 14 dagen","Laatste 30 dagen","Deze maand","Aangepaste periode"]
         keuze = st.selectbox("Selecteer periode", opties)
-        
-        if keuze == "Laatste 7 dagen":
-            start_date = today - timedelta(days=7)
-            end_date = today
-        elif keuze == "Laatste 14 dagen":
-            start_date = today - timedelta(days=14)
-            end_date = today
-        elif keuze == "Laatste 30 dagen":
-            start_date = today - timedelta(days=30)
-            end_date = today
-        elif keuze == "Deze maand":
-            start_date = today.replace(day=1)
-            end_date = today
-        else:  # Aangepaste periode
-            start_date, end_date = st.date_input(
-                "Kies datumbereik",
-                value=[today - timedelta(days=7), today],
-                help="Selecteer begin- en einddatum"
-            )
+        if keuze=="Laatste 7 dagen":
+            start_date, end_date = today-timedelta(days=7), today
+        elif keuze=="Laatste 14 dagen":
+            start_date, end_date = today-timedelta(days=14), today
+        elif keuze=="Laatste 30 dagen":
+            start_date, end_date = today-timedelta(days=30), today
+        elif keuze=="Deze maand":
+            start_date, end_date = today.replace(day=1), today
+        else:
+            start_date, end_date = st.date_input("Kies datumbereik", [today-timedelta(days=7),today])
         st.markdown(f"**Getoond:** {start_date.strftime('%d-%m-%Y')} tot {end_date.strftime('%d-%m-%Y')}")
-    
-    if uploaded_file is not None:
-        with st.spinner('Data aan het verwerken...'):
-            df = load_and_process_data(uploaded_file)
-        
-        if df is not None:
-            # Filter op gekozen datumbereik
-            df = df.loc[
-                (df['Datum aanmaak'] >= pd.to_datetime(start_date)) & 
-                (df['Datum aanmaak'] <= pd.to_datetime(end_date))
-            ]
-            
-            # Key Metrics
-            metrics = calculate_metrics(df)
-            st.header("🎯 Key Performance Indicators")
-            col1, col2, col3, col4 = st.columns(4)
-            with col1:
-                st.metric("Totaal Vacatures", metrics['total_vacatures'])
-            with col2:
-                st.metric("Vervulde Vacatures", metrics['vervulde_vacatures'])
-            with col3:
-                st.metric("Openstaande Vacatures", metrics['openstaande_vacatures'])
-            with col4:
-                st.metric("Fill Rate", f"{metrics['fill_rate']:.1f}%")
-            
-            # Tabs met grafieken en tabellen (ongewijzigd)
-            tab1, tab2, tab3, tab4 = st.tabs([
-                "📈 Status Overzicht", 
-                "👥 Recruiter Performance", 
-                "🌐 Kanaal Analyse", 
-                "📅 Tijdlijn"
-            ])
-            
-            with tab1:
-                st.header("Vacaturestatus Verdeling")
-                status_fig = create_status_chart(df)
-                st.plotly_chart(status_fig, use_container_width=True)
-                st.subheader("Status Details")
-                status_table = df['Status vacature'].value_counts().reset_index()
-                status_table.columns = ['Status', 'Aantal']
-                status_table['Percentage'] = (status_table['Aantal'] / len(df) * 100).round(1)
-                st.dataframe(status_table, use_container_width=True)
-            
-            with tab2:
-                st.header("Recruiter Performance")
-                perf_fig, recruiter_stats = create_recruiter_performance_chart(df)
-                st.plotly_chart(perf_fig, use_container_width=True)
-                st.subheader("Recruiter Statistieken")
-                display = recruiter_stats.copy()
-                display.columns = [
-                    'Totaal Vacatures', 'Totaal Reacties', 
-                    'Vervulde Vacatures', 'Fill Rate (%)', 'Gem. Reacties'
-                ]
-                st.dataframe(display, use_container_width=True)
-            
-            with tab3:
-                st.header("Wervingskanaal Analyse")
-                ch1, ch2, ch_df = create_channel_analysis(df)
-                if ch1:
-                    c1, c2 = st.columns(2)
-                    with c1:
-                        st.plotly_chart(ch1, use_container_width=True)
-                    with c2:
-                        st.plotly_chart(ch2, use_container_width=True)
-                    st.subheader("Kanaal Performance Tabel")
-                    disp = ch_df.copy()
-                    disp['Conversie_Rate'] = disp['Conversie_Rate'].round(1)
-                    disp.columns = [
-                        'Kanaal', 'Totaal Sollicitanten', 
-                        'Aangenomen', 'Afgewezen', 'Conversie Rate (%)'
-                    ]
-                    st.dataframe(disp, use_container_width=True)
-                else:
-                    st.info("Geen kanaaldata beschikbaar in de huidige export.")
-            
-            with tab4:
-                st.header("Tijdlijn Analyse")
-                timeline_fig = create_timeline_analysis(df)
-                if timeline_fig:
-                    st.plotly_chart(timeline_fig, use_container_width=True)
-                else:
-                    st.info("Onvoldoende tijdsdata voor tijdlijn analyse.")
-                st.subheader("Dataset Informatie")
-                c1, c2 = st.columns(2)
-                with c1:
-                    if 'Datum aanmaak' in df.columns:
-                        mn = df['Datum aanmaak'].min()
-                        mx = df['Datum aanmaak'].max()
-                        st.write(f"**Datum bereik:** {mn.strftime('%d-%m-%Y')} tot {mx.strftime('%d-%m-%Y')}")
-                with c2:
-                    tot_resp = df['Aantal reacties'].sum()
-                    st.write(f"**Totaal aantal reacties:** {tot_resp:,}")
-            
-            with st.expander("🔍 Bekijk ruwe data"):
-                st.dataframe(df, use_container_width=True)
-                buf = io.StringIO()
-                df.to_csv(buf, index=False)
-                st.download_button(
-                    label="📥 Download verwerkte data als CSV",
-                    data=buf.getvalue(),
-                    file_name="processed_ats_data.csv",
-                    mime="text/csv"
-                )
-    else:
-        # Landing page
-        st.markdown("""
-        ## 🚀 Welkom bij het ATS Recruitment Dashboard
-        
-        Upload je CSV export vanuit je ATS systeem via de sidebar, selecteer een datumbereik en bekijk direct je analytics!
-        """)
 
-if __name__ == "__main__":
+    if not uploaded_file:
+        st.info("Upload een bestand om te starten.")
+        return
+
+    df = load_and_process_data(uploaded_file)
+    if df is None:
+        return
+    df = df.loc[
+        (df['Datum aanmaak']>=pd.to_datetime(start_date)) &
+        (df['Datum aanmaak']<=pd.to_datetime(end_date))
+    ]
+
+    # KPI's
+    metrics = calculate_metrics(df)
+    st.header("🎯 Key Performance Indicators")
+    c1,c2,c3,c4 = st.columns(4)
+    c1.metric("Totaal Vacatures",metrics['total_vacatures'])
+    c2.metric("Vervulde Vacatures",metrics['vervulde_vacatures'])
+    c3.metric("Openstaande Vacatures",metrics['openstaande_vacatures'])
+    c4.metric("Fill Rate",f"{metrics['fill_rate']:.1f}%")
+
+    # Tabs
+    tab1, tab2, tab3, tab4 = st.tabs([
+        "📈 Status Overzicht","👥 Recruiter Performance",
+        "🌐 Kanaal Analyse","📅 Tijdlijn"
+    ])
+
+    with tab1:
+        st.header("Vacaturestatus Verdeling")
+        st.plotly_chart(create_status_chart(df), use_container_width=True)
+
+    with tab2:
+        st.header("Recruiter Performance")
+        perf_fig, rec_stats = create_recruiter_performance_chart(df)
+        st.plotly_chart(perf_fig, use_container_width=True)
+        st.subheader("Details per Recruiter")
+        recruiter = st.selectbox("Selecteer recruiter", rec_stats.index)
+        df_rec = df[df['Eigenaar']==recruiter].copy()
+        df_open = df_rec[~df_rec['Status vacature'].isin(FILLED_STATUSES)]
+        df_open['Nieuw geopend'] = df_open['Datum aanmaak'].between(start_date, end_date)
+        def top_ch(r):
+            vals = {ch: r.get(f'Totaal per wervingskanaal: {ch}',0) for ch in CHANNELS}
+            return max(vals, key=vals.get) if vals else None
+        df_open['Top Kanaal'] = df_open.apply(top_ch, axis=1)
+        st.dataframe(
+            df_open[['Functie','Nieuw geopend','Aantal reacties','Top Kanaal']],
+            use_container_width=True
+        )
+
+    with tab3:
+        st.header("Wervingskanaal Analyse")
+        fig1, fig2, cdf = create_channel_analysis(df)
+        if fig1:
+            col1,col2 = st.columns(2)
+            col1.plotly_chart(fig1, use_container_width=True)
+            col2.plotly_chart(fig2, use_container_width=True)
+        else:
+            st.info("Geen kanaaldata beschikbaar.")
+
+    with tab4:
+        st.header("Tijdlijn Analyse")
+        st.plotly_chart(create_timeline_analysis(df), use_container_width=True)
+
+if __name__=="__main__":
     main()
+    
