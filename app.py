@@ -125,6 +125,8 @@ def get_current_quarter_range(current_date):
     start_month = 3 * (quarter - 1) + 1
     start = date(current_date.year, start_month, 1)
     return start, current_date
+
+def load_and_process_data(uploaded_file):
     """Laadt en verwerkt de ATS CSV data"""
     try:
         # Probeer verschillende encodings
@@ -145,6 +147,12 @@ def get_current_quarter_range(current_date):
         
         # Data cleaning
         df.columns = df.columns.str.strip()
+        
+        # Clean HTML entities in tekst kolommen
+        text_columns = ['Functie', 'Functietitel', 'Eigenaar', 'Vacaturehouder', 'HR-adviseur', 'Locatie']
+        for col in text_columns:
+            if col in df.columns:
+                df[col] = df[col].apply(clean_html_entities)
         
         # Converteer datums
         date_columns = ['Datum aanmaak', 'Startdatum intern', 'Einddatum intern', 
@@ -943,7 +951,6 @@ def main():
                             file_name=f"ats_data_filtered_{start_date}_{end_date}.csv",
                             mime="text/csv"
                         )
-                        )
     
     else:
         # Landing page
@@ -1038,69 +1045,6 @@ def main():
             - HTML entities worden automatisch geconverteerd
             - Datums in DD-MM-YYYY formaat worden herkend
             - Lege waarden en 0000-00-00 datums worden gefilterd
-            """)
-
-if __name__ == "__main__":
-    main()
-    
-    else:
-        # Landing page
-        st.markdown("""
-        ## 🚀 Welkom bij het ATS Recruitment Dashboard
-        
-        Deze applicatie helpt je om waardevolle inzichten te krijgen uit je ATS (Applicant Tracking System) export data.
-        
-        ### 📋 Nieuwe Features:
-        
-        🗓️ **Periode Selectie** - Kies specifieke datumbereiken voor analyse  
-        📈 **Dagelijkse Activiteit** - Zie nieuwe en gesloten vacatures per dag  
-        📋 **Vacature Details** - Gedetailleerde performance per individuele vacature  
-        🔍 **Data Explorer** - Verken en exporteer je data  
-        📊 **Performance Insights** - Automatische identificatie van top performers  
-        
-        ### 📊 Dashboard Functionaliteiten:
-        
-        ✅ **Status Overzicht** - Pie charts en KPIs voor vacaturestatus  
-        ✅ **Recruiter Performance** - Vergelijk prestaties tussen recruiters  
-        ✅ **Kanaal Analyse** - Ontdek welke wervingskanalen het beste werken  
-        ✅ **Tijdlijn Analyse** - Bekijk trends en activiteit over tijd  
-        ✅ **Vacature Breakdown** - Performance metrics per individuele vacature  
-        
-        ### 📁 Hoe te gebruiken:
-        1. **Upload** je CSV export vanuit je ATS systeem via de sidebar
-        2. **Selecteer** de gewenste analyseperiode met de datumfilters
-        3. **Navigeer** door de verschillende tabs voor verschillende analyses
-        4. **Export** gefilterde data of performance rapporten
-        
-        ### 🔧 Ondersteunde formaten:
-        - CSV bestanden met puntkomma (;) als delimiter
-        - Multiple encodings (UTF-8, CP1252, etc.)
-        - Datum formaten: DD-MM-YYYY
-        
-        ### 💡 Pro Tips:
-        - Start met een **korte periode** (1-3 maanden) voor gedetailleerde analyse
-        - Gebruik **Vacature Details** tab voor individuele performance tracking
-        - **Export** rapporten voor verdere analyse in Excel
-        - Combineer **Status** en **Periode** filters voor specifieke inzichten
-        
-        **Upload je bestand om te beginnen! →**
-        """)
-        
-        # Voorbeeld data structure
-        with st.expander("📋 Verwachte Data Structuur"):
-            st.markdown("""
-            **Verplichte kolommen:**
-            - `Functie` - Vacaturetitel
-            - `Status vacature` - Huidige status
-            - `Eigenaar` - Recruiter
-            - `Datum aanmaak` - Aanmaakdatum vacature
-            - `Aantal reacties` - Aantal sollicitaties
-            
-            **Optionele kolommen voor uitgebreide analyse:**
-            - `Extern vervuld`, `Intern vervuld` - Vervuldatums
-            - `Niet vervuld`, `Ingetrokken` - Sluitdatums
-            - `Totaal per wervingskanaal: [KANAAL]` - Kanaal data
-            - `Locatie` - Vestiging/locatie
             """)
 
 if __name__ == "__main__":
