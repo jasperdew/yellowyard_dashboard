@@ -943,7 +943,7 @@ def main():
                             file_name=f"ats_data_filtered_{start_date}_{end_date}.csv",
                             mime="text/csv"
                         )
-                        st.metric("Gesloten in Periode", len(closed_in_period))
+                        )
     
     else:
         # Landing page
