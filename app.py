@@ -1083,6 +1083,9 @@ def main():
             # Uitgebreide Analytics Sectie
             st.header("📊 Uitgebreide Analytics")
             
+            # Uitgebreide Analytics Sectie
+            st.header("📊 Uitgebreide Analytics")
+            
             # Controleer welke inzichten we kunnen tonen
             col1, col2 = st.columns(2)
             
