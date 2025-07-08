@@ -778,7 +778,7 @@ def main():
             """)
 
 if __name__ == "__main__":
-    main()import streamlit as st
+    main()
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
