@@ -1,61 +1,4 @@
-def create_channel_analysis(df):
-    """Analyseert wervingskanalen"""
-    channels = ['V&VN', 'Indeed', 'Infopuntzorg', 'Zorgselect', 'Facebook', 
-               'Linkedin', 'Twitter', 'Instagram', 'Via medewerker van SEIN', 'Anders']
-    
-    channel_data = []
-    
-    for channel in channels:
-        total_col = f'Totaal per wervingskanaal: {channel}'
-        hired_col = f'Totaal per wervingskanaal (aangenomen): {channel}'
-        rejected_col = f'Totaal per wervingskanaal (afgewezen): {channel}'
-        
-        if total_col in df.columns:
-            total = df[total_col].sum()
-            hired = df[hired_col].sum() if hired_col in df.columns else 0
-            rejected = df[rejected_col].sum() if rejected_col in df.columns else 0
-            
-            if total > 0:
-                conversion_rate = (hired / total * 100)
-                channel_data.append({
-                    'Kanaal': channel,
-                    'Totaal_Sollicitanten': total,
-                    'Aangenomen': hired,
-                    'Afgewezen': rejected,
-                    'Conversie_Rate': conversion_rate
-                })
-    
-    channel_df = pd.DataFrame(channel_data)
-    channel_df = channel_df[channel_df['Totaal_Sollicitanten'] > 0].sort_values('Totaal_Sollicitanten', ascending=False)
-    
-    if len(channel_df) > 0:
-        # Chart voor totaal sollicitanten
-        fig1 = px.bar(
-            channel_df,
-            x='Kanaal',
-            y='Totaal_Sollicitanten',
-            title='Aantal Sollicitanten per Kanaal',
-            color='Totaal_Sollicitanten',
-            color_continuous_scale='Blues',
-            text='Totaal_Sollicitanten'
-        )
-        fig1.update_traces(textposition='outside')
-        fig1.update_xaxes(tickangle=45)
-        
-        # Chart voor conversie rates
-        fig2 = px.bar(
-            channel_df,
-            x='Kanaal',
-            y='Conversie_Rate',
-            title='Conversieratio per Kanaal (%)',
-            color='Conversie_Rate',
-            color_continuous_scale='Greens',
-            text=[f"{x:.1f}%" for x in channel_df['Conversie_Rate']]
-        )
-        fig2.update_traces(textposition='outside')
-        fig2.update_xaxes(tickangle=45)
-        
-        return fig1, fig2, channel_df
+return None, None, pd.DataFrame()
     
     return None, None, pd.DataFrame()
 
@@ -103,8 +46,143 @@ def main():
                 for name, period_range in periods.items():
                     if period_range is None:  # "Aangepast" optie
                         available_periods[name] = None
-                    else:
-                        period_start, period_end = period_range
+                        st.error(f"🔴 **Beperkte data kwaliteit.** Gemiddelde completeness: {avg_completeness:.1f}%")
+                st.info("Overweeg een meer complete data export voor betere inzichten.")
+            
+            # Download opties
+            with st.expander("📥 Export Opties"):
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    if st.button("📊 Download Performance Rapport"):
+                        performance_table = create_vacature_performance_table(df)
+                        csv_buffer = io.StringIO()
+                        performance_table.to_csv(csv_buffer, index=False, sep=';')
+                        csv_data = csv_buffer.getvalue()
+                        
+                        st.download_button(
+                            label="💾 Download Performance CSV",
+                            data=csv_data,
+                            file_name=f"vacature_performance_{start_date}_{end_date}.csv",
+                            mime="text/csv"
+                        )
+                
+                with col2:
+                    if st.button("📈 Download Gefilterde Data"):
+                        csv_buffer = io.StringIO()
+                        df.to_csv(csv_buffer, index=False, sep=';')
+                        csv_data = csv_buffer.getvalue()
+                        
+                        st.download_button(
+                            label="💾 Download Gefilterde CSV",
+                            data=csv_data,
+                            file_name=f"ats_data_filtered_{start_date}_{end_date}.csv",
+                            mime="text/csv"
+                        )
+    
+    else:
+        # Landing page
+        st.markdown("""
+        ## 🚀 Welkom bij het ATS Recruitment Dashboard
+        
+        Deze applicatie helpt je om waardevolle inzichten te krijgen uit je ATS (Applicant Tracking System) export data.
+        
+        ### 📋 Nieuwe Features:
+        
+        🗓️ **Slimme Periode Selectie** - Kies uit standaard periodes of maak aangepaste selecties  
+        📈 **Dagelijkse Activiteit** - Zie nieuwe en gesloten vacatures per dag  
+        📋 **Vacature Details** - Gedetailleerde performance per individuele vacature  
+        📊 **Uitgebreide Analytics** - Volledig overzicht van beschikbare inzichten  
+        🧹 **Automatische Data Cleaning** - HTML entities worden automatisch geconverteerd  
+        
+        ### 📊 Dashboard Functionaliteiten:
+        
+        ✅ **Status Overzicht** - Pie charts en KPIs voor vacaturestatus  
+        ✅ **Recruitment Performance** - Vergelijk prestaties tussen recruiters  
+        ✅ **Kanaal Analyse** - Ontdek welke wervingskanalen het beste werken  
+        ✅ **Vacature Breakdown** - Performance metrics per individuele vacature  
+        ✅ **Data Completeness Rapport** - Zie de kwaliteit van je data  
+        
+        ### 🗓️ Periode Opties:
+        - **Laatste 7, 14, 30, 90 dagen** - Recente activiteit
+        - **Huidige/vorige maand** - Maandelijkse analyses  
+        - **Huidige kwartaal** - Kwartaal rapportage
+        - **Kalenderjaar** - Jaarlijkse trends
+        - **Aangepast** - Kies je eigen periode
+        
+        ### 📁 Hoe te gebruiken:
+        1. **Upload** je CSV export vanuit je ATS systeem via de sidebar
+        2. **Selecteer** een standaard periode of kies "Aangepast" voor specifieke datums
+        3. **Navigeer** door de verschillende tabs voor verschillende analyses
+        4. **Bekijk** de Uitgebreide Analytics voor een volledig overzicht
+        5. **Export** rapporten voor verdere analyse
+        
+        ### 🔧 Ondersteunde formaten:
+        - CSV bestanden met puntkomma (;) als delimiter
+        - Multiple encodings (UTF-8, CP1252, etc.)
+        - Datum formaten: DD-MM-YYYY
+        - **Automatische HTML entity cleaning** (bijv. Co&ouml;rdinator → Coördinator)
+        
+        ### 🔒 GDPR Compliance:
+        - **Automatische anonimisering** - contactgegevens worden verwijderd
+        - **Voornaam-only** - "Ilja Noltee" wordt "Ilja"  
+        - **Client-side processing** - persoonlijke data verlaat je computer niet
+        - **Privacy by design** - alleen relevante data voor analyses
+        
+        ### 💡 Pro Tips:
+        - Begin met **"Laatste 30 dagen"** voor een snel overzicht
+        - Gebruik **"Huidige kwartaal"** voor management rapportage
+        - Check de **Uitgebreide Analytics** voor data completeness
+        - **Export** performance rapporten voor presentaties
+        - Vergelijk verschillende periodes voor trend analyse
+        
+        ### 📊 Beschikbare Inzichten:
+        
+        **✅ Volledig Ondersteund:**
+        - Vacaturestatus verdelingen en trends
+        - Fill rates per recruiter en overall  
+        - Kanaal performance en conversie ratio's
+        - Dagelijkse activiteit tracking
+        - Individuele vacature performance
+        - Doorlooptijd analyses (waar data beschikbaar)
+        
+        **⚠️ Beperkt Ondersteund:**
+        - Tijdlijn trends (afhankelijk van periode lengte)
+        - Procesfase analyses (afhankelijk van status data)
+        
+        **❌ Niet Ondersteund:**
+        - Kandidaat journey tracking (vereist kandidaat-level data)
+        - Funnel analyses (vereist web analytics)
+        - Kosten analyses (niet in standaard export)
+        
+        **Upload je bestand om te beginnen! →**
+        """)
+        
+        # Voorbeeld data structure
+        with st.expander("📋 Verwachte Data Structuur"):
+            st.markdown("""
+            **Verplichte kolommen:**
+            - `Functie` - Vacaturetitel
+            - `Status vacature` - Huidige status
+            - `Eigenaar` - Recruiter
+            - `Datum aanmaak` - Aanmaakdatum vacature
+            - `Aantal reacties` - Aantal sollicitaties
+            
+            **Optionele kolommen voor uitgebreide analyse:**
+            - `Extern vervuld`, `Intern vervuld` - Vervuldatums voor doorlooptijd
+            - `Niet vervuld`, `Ingetrokken` - Sluitdatums voor completeness
+            - `Totaal per wervingskanaal: [KANAAL]` - Voor kanaal effectiviteit
+            - `Totaal per wervingskanaal (aangenomen): [KANAAL]` - Voor conversie rates
+            - `Locatie` - Voor geografische analyses
+            
+            **Automatische Cleaning:**
+            - HTML entities worden automatisch geconverteerd
+            - Datums in DD-MM-YYYY formaat worden herkend
+            - Lege waarden en 0000-00-00 datums worden gefilterd
+            """)
+
+if __name__ == "__main__":
+    main()        period_start, period_end = period_range
                         # Check of periode overlapt met beschikbare data
                         if period_end >= min_date and period_start <= max_date:
                             # Adjust to data boundaries
@@ -522,6 +600,184 @@ def main():
                     st.write(f"• Aantal actieve kanalen: {len(channel_df)}")
                     best_channel = channel_df.loc[channel_df['Conversie_Rate'].idxmax()]
                     st.write(f"• Beste kanaal: {best_channel['Kanaal']} ({best_channel['Conversie_Rate']:.1f}%)")
+                    st.write(f"• Totaal sollicitanten: {channel_df['Totaal_Sollicitanten'].sum():,}")
+                else:
+                    st.write("• Geen kanaaldata beschikbaar")
+                
+                # Recruiter Performance
+                st.write("✅ **Recruitment Performance**")
+                recruiter_stats = create_recruitment_performance_chart(df)[1]
+                if len(recruiter_stats) > 0:
+                    top_recruiter = recruiter_stats.sort_values('Fill_Rate', ascending=False).iloc[0]
+                    st.write(f"• Actieve recruiters: {len(recruiter_stats)}")
+                    st.write(f"• Beste fill rate: {top_recruiter['Eigenaar']} ({top_recruiter['Fill_Rate']:.1f}%)")
+                    st.write(f"• Totaal reacties: {recruiter_stats['Aantal reacties'].sum():,}")
+                
+                # Gedetailleerde kandidaat metrics
+                detailed_analysis = create_detailed_vacature_analysis(df)
+                if len(detailed_analysis) > 0:
+                    st.write("✅ **Kandidaat Proces Analyse**")
+                    totaal_gesprekken = detailed_analysis['Gesprekken'].sum()
+                    totaal_afgewezen_brief = detailed_analysis['Afgewezen_na_Brief'].sum()
+                    totaal_afgewezen_gesprek = detailed_analysis['Afgewezen_na_Gesprek'].sum()
+                    totaal_aangenomen = detailed_analysis['Aangenomen'].sum()
+                    st.write(f"• Totaal gesprekken: {totaal_gesprekken:,}")
+                    st.write(f"• Afgewezen na brief: {totaal_afgewezen_brief:,}")
+                    st.write(f"• Afgewezen na gesprek: {totaal_afgewezen_gesprek:,}")
+                    st.write(f"• Totaal aangenomen: {totaal_aangenomen:,}")
+                
+                # Afdeling analyse
+                if 'Afdeling' in df.columns:
+                    afdeling_stats = create_afdeling_summary(df)
+                    if len(afdeling_stats) > 0:
+                        st.write("✅ **Afdeling Analyse**")
+                        st.write(f"• Aantal afdelingen: {len(afdeling_stats)}")
+                        beste_afdeling = afdeling_stats.loc[afdeling_stats['Fill_Rate'].idxmax()]
+                        st.write(f"• Beste afdeling: {beste_afdeling['Afdeling']} ({beste_afdeling['Fill_Rate']:.1f}%)")
+                        st.write(f"• Totaal recruiters: {afdeling_stats['Aantal_Recruiters'].sum()}")
+            
+            with col2:
+                st.subheader("⚠️ Beperkte Analyses")
+                
+                # Tijdlijn analyses
+                st.write("⚠️ **Tijdlijn Analyses**")
+                period_days = (end_date - start_date).days
+                if period_days < 30:
+                    st.write("• Beperkte periode voor trends")
+                elif period_days < 90:
+                    st.write("• Korte periode - trends zichtbaar")
+                else:
+                    st.write("• Voldoende periode voor trend analyse")
+                
+                # Doorlooptijd analyses
+                st.write("⚠️ **Doorlooptijd Analyses**")
+                performance_table = create_vacature_performance_table(df)
+                doorlooptijden = performance_table[performance_table['Doorlooptijd'] != '-']
+                if len(doorlooptijden) > 0:
+                    st.write(f"• Vacatures met doorlooptijd: {len(doorlooptijden)}")
+                    st.write("• Gemiddelde doorlooptijd berekening mogelijk")
+                else:
+                    st.write("• Onvoldoende sluitdatums voor doorlooptijd")
+                
+                st.write("❌ **Niet Beschikbaar**")
+                st.write("• Candidate journey tracking")
+                st.write("• Funnel analyses (bezoekers → sollicitaties)")
+                st.write("• Kosten per kanaal")
+                st.write("• Time-to-reject specifiek")
+                st.write("• Procesfase tijdsduur")
+            
+            # Summary van data completeness
+            st.subheader("📋 Data Completeness Rapport")
+            
+            # Bereken data completeness scores
+            completeness_scores = {}
+            
+            # Basis data
+            completeness_scores['Basis Vacature Info'] = 100  # Altijd beschikbaar
+            
+            # Status data
+            status_complete = (df['Status vacature'].notna().sum() / len(df)) * 100
+            completeness_scores['Status Informatie'] = status_complete
+            
+            # Datum data  
+            date_complete = (df['Datum aanmaak'].notna().sum() / len(df)) * 100
+            completeness_scores['Datum Informatie'] = date_complete
+            
+            # Recruiter data
+            recruiter_complete = (df['Eigenaar'].notna().sum() / len(df)) * 100
+            completeness_scores['Recruiter Informatie'] = recruiter_complete
+            
+            # Reactie data
+            reactie_complete = ((df['Aantal reacties'] > 0).sum() / len(df)) * 100
+            completeness_scores['Sollicitatie Data'] = reactie_complete
+            
+            # Kanaal data
+            kanaal_cols = [col for col in df.columns if 'wervingskanaal' in col and not col.endswith(('aangenomen)', 'afgewezen)'))]
+            if kanaal_cols:
+                kanaal_data = df[kanaal_cols].sum(axis=1) > 0
+                kanaal_complete = (kanaal_data.sum() / len(df)) * 100
+                completeness_scores['Kanaal Data'] = kanaal_complete
+            else:
+                completeness_scores['Kanaal Data'] = 0
+            
+            # Toon completeness scores
+            completeness_df = pd.DataFrame(list(completeness_scores.items()), 
+                                         columns=['Data Categorie', 'Completeness %'])
+            completeness_df['Completeness %'] = completeness_df['Completeness %'].round(1)
+            completeness_df['Status'] = completeness_df['Completeness %'].apply(
+                lambda x: '🟢 Excellent' if x >= 90 else '🟡 Good' if x >= 70 else '🔴 Limited'
+            )
+            
+            st.dataframe(completeness_df, use_container_width=True)
+            
+            # Gemiddelde completeness
+            avg_completeness = completeness_df['Completeness %'].mean()
+            
+            if avg_completeness >= 85:
+                st.success(f"🎉 **Uitstekende data kwaliteit!** Gemiddelde completeness: {avg_completeness:.1f}%")
+                st.info("Je kunt alle beschikbare analyses gebruiken voor betrouwbare inzichten.")
+            elif avg_completeness >= 70:
+                st.warning(f"⚠️ **Goede data kwaliteit.** Gemiddelde completeness: {avg_completeness:.1f}%")
+                st.info("De meeste analyses zijn betrouwbaar, maar sommige kunnen beperkt zijn.")
+            else:
+                def create_channel_analysis(df):
+    """Analyseert wervingskanalen"""
+    channels = ['V&VN', 'Indeed', 'Infopuntzorg', 'Zorgselect', 'Facebook', 
+               'Linkedin', 'Twitter', 'Instagram', 'Via medewerker van SEIN', 'Anders']
+    
+    channel_data = []
+    
+    for channel in channels:
+        total_col = f'Totaal per wervingskanaal: {channel}'
+        hired_col = f'Totaal per wervingskanaal (aangenomen): {channel}'
+        rejected_col = f'Totaal per wervingskanaal (afgewezen): {channel}'
+        
+        if total_col in df.columns:
+            total = df[total_col].sum()
+            hired = df[hired_col].sum() if hired_col in df.columns else 0
+            rejected = df[rejected_col].sum() if rejected_col in df.columns else 0
+            
+            if total > 0:
+                conversion_rate = (hired / total * 100)
+                channel_data.append({
+                    'Kanaal': channel,
+                    'Totaal_Sollicitanten': total,
+                    'Aangenomen': hired,
+                    'Afgewezen': rejected,
+                    'Conversie_Rate': conversion_rate
+                })
+    
+    channel_df = pd.DataFrame(channel_data)
+    channel_df = channel_df[channel_df['Totaal_Sollicitanten'] > 0].sort_values('Totaal_Sollicitanten', ascending=False)
+    
+    if len(channel_df) > 0:
+        # Chart voor totaal sollicitanten
+        fig1 = px.bar(
+            channel_df,
+            x='Kanaal',
+            y='Totaal_Sollicitanten',
+            title='Aantal Sollicitanten per Kanaal',
+            color='Totaal_Sollicitanten',
+            color_continuous_scale='Blues',
+            text='Totaal_Sollicitanten'
+        )
+        fig1.update_traces(textposition='outside')
+        fig1.update_xaxes(tickangle=45)
+        
+        # Chart voor conversie rates
+        fig2 = px.bar(
+            channel_df,
+            x='Kanaal',
+            y='Conversie_Rate',
+            title='Conversieratio per Kanaal (%)',
+            color='Conversie_Rate',
+            color_continuous_scale='Greens',
+            text=[f"{x:.1f}%" for x in channel_df['Conversie_Rate']]
+        )
+        fig2.update_traces(textposition='outside')
+        fig2.update_xaxes(tickangle=45)
+        
+        return fig1, fig2, channel_df
                     st.write(f"• Totaal sollicitanten: {channel_df['Totaal_Sollicitanten'].sum():,}")
                 else:
                     st.write("• Geen kanaaldata beschikbaar")
